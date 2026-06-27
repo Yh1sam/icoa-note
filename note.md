@@ -1,4 +1,4 @@
-# ICOA CLI & CTF Playbook v1
+# ICOA CLI & CTF Playbook v2
 
 > 目的：這不是 Linux manual。這是給 ICOA / PicoCTF / CTF 實戰用的 **80/20 指令手冊**。  
 > 讀法：看到題目先按「題型 → 工具鏈 → 常用命令」走，不要死背全部參數。
@@ -1378,3 +1378,1363 @@ git commit --amend --author="root <root@picoctf>" --no-edit
 6. **看到 pwn 就先 `checksec`，再看 `win()`、offset、canary、PIE。**
 7. **看到 pcap 就 `tshark -z io,phs`，再 follow stream。**
 8. **不要背全部參數；記住每類題的第一反應。**
+
+---
+
+# Appendix v2 — RSA 經典情形、檔案 Header、URL / Encoding 轉換
+
+> 這一章是 v2 補充。目的不是把密碼學或檔案格式變成教科書，而是把 ICOA / CTF 最常見的「看到什麼 → 想到什麼 → 下什麼命令」整理成可直接使用的模板。
+
+---
+
+## A. RSA 經典情形 Playbook
+
+### A.0 看到 RSA 先問的 6 個問題
+
+拿到：
+
+```text
+n = ...
+e = ...
+ciphertext = ...
+```
+
+先不要急著寫解密程式，先分類：
+
+| 現象 | 可能題型 | 第一反應 |
+|---|---|---|
+| `e = 3` / `e = 5` 且 `ciphertext` 很小 | small exponent / no padding | 試 `e` 次方根 |
+| `n` 不大或題目說 weak primes | weak factorization | factor `n` |
+| 多個 `n`，同一個 `e`，同一個 message | Hastad broadcast | CRT + 開根 |
+| 多個 `n` 有共同因子 | shared prime | 對所有 `n` 做 `gcd` |
+| 同一個 `n`，兩個不同 `e` 加密同一個 message | common modulus | Extended Euclid |
+| 已知 `p` / `q` / `phi` / `dp` / `dq` | key leak | 重建 `d` |
+| `d` 異常小 | Wiener's attack | continued fractions |
+| 每個 ciphertext 都像 `17623416832, 10510100501...` | char-by-char RSA | 每個數開根或暴力字元 |
+
+RSA 的基本式：
+
+```text
+c = m^e mod n
+m = c^d mod n
+n = p * q
+phi = (p-1)(q-1)
+d = e^{-1} mod phi
+```
+
+CTF 裡最常見的破法不是「破解 RSA 本身」，而是：
+
+```text
+padding 弱
+p/q 弱
+key 洩漏
+e 太小
+同一個 message 被錯誤重複加密
+```
+
+---
+
+### A.1 標準 weak n：分解 n 後解密
+
+#### 什麼時候想到？
+
+題目說：
+
+```text
+weak primes
+factor the modulus
+find the factors
+```
+
+或者 `n` 明顯比正常 RSA 小。
+
+#### 解法模板
+
+```python
+from sympy import factorint
+
+n = 914224879713534891752745051672415462330144197757968187295993
+e = 17
+c = 15229380834061659422907324226703773035343
+
+f = factorint(n)
+print(f)
+
+p, q = list(f.keys())
+phi = (p - 1) * (q - 1)
+d = pow(e, -1, phi)
+
+m = pow(c, d, n)
+print(m.to_bytes((m.bit_length() + 7) // 8, 'big'))
+```
+
+#### 核心理解
+
+```text
+只要 n 被分解成 p 和 q
+就能算 phi
+就能算 d
+就能正常解密
+```
+
+---
+
+### A.2 Small e + no padding：直接開 e 次方根
+
+#### 什麼時候想到？
+
+看到：
+
+```text
+e = 3
+```
+
+或：
+
+```text
+e = 5
+```
+
+且 ciphertext 很小，或者 ciphertext 是一串列表：
+
+```text
+[17623416832, 10510100501, ...]
+```
+
+#### 為什麼能破？
+
+正常 RSA：
+
+```text
+c = m^e mod n
+```
+
+但如果：
+
+```text
+m^e < n
+```
+
+那 `mod n` 根本沒有發生效果，所以：
+
+```text
+c = m^e
+```
+
+那就直接：
+
+```text
+m = e-th_root(c)
+```
+
+#### gmpy2 寫法
+
+```python
+import gmpy2
+
+c = 17623416832
+e = 5
+m, exact = gmpy2.iroot(c, e)
+print(m, exact)
+print(chr(int(m)))
+```
+
+#### 多個字元逐個開根
+
+```python
+import gmpy2
+
+ciphertext = [17623416832, 10510100501, 9509900499]
+e = 5
+
+out = ''
+for c in ciphertext:
+    m, exact = gmpy2.iroot(c, e)
+    if not exact:
+        print('not exact root:', c)
+    out += chr(int(m))
+
+print(out)
+```
+
+#### 沒有 gmpy2 的簡單暴力版
+
+如果每個明文字元是 ASCII，直接暴力 0–255：
+
+```python
+ciphertext = [17623416832, 10510100501, 9509900499]
+e = 5
+
+out = ''
+for c in ciphertext:
+    for m in range(256):
+        if m ** e == c:
+            out += chr(m)
+            break
+print(out)
+```
+
+這個在「逐字元 RSA」題目非常好用。
+
+---
+
+### A.3 Small message brute force：窮舉明文
+
+#### 什麼時候想到？
+
+明文空間很小，例如：
+
+```text
+m 是 0–255 字元
+m 是 4 位 PIN
+m 是常見單詞
+```
+
+#### 模板：暴力 ASCII 字元
+
+```python
+n = ...
+e = ...
+c = ...
+
+for m in range(256):
+    if pow(m, e, n) == c:
+        print('found:', m, chr(m))
+        break
+```
+
+#### 模板：暴力短 PIN
+
+```python
+n = ...
+e = ...
+c = ...
+
+for pin in range(10000):
+    msg = f'{pin:04d}'.encode()
+    m = int.from_bytes(msg, 'big')
+    if pow(m, e, n) == c:
+        print(msg)
+        break
+```
+
+---
+
+### A.4 Fermat factorization：p 和 q 太接近
+
+#### 什麼時候想到？
+
+題目暗示：
+
+```text
+close primes
+p and q are too close
+```
+
+或者 `factorint(n)` 很慢但 n 看起來像兩個接近質數相乘。
+
+#### 原理一句話
+
+如果：
+
+```text
+n = p*q
+```
+
+且 `p`、`q` 很接近，則：
+
+```text
+n = a^2 - b^2 = (a-b)(a+b)
+```
+
+#### 模板
+
+```python
+import gmpy2
+
+n = ...
+a = gmpy2.isqrt(n)
+if a * a < n:
+    a += 1
+
+while True:
+    b2 = a*a - n
+    b = gmpy2.isqrt(b2)
+    if b*b == b2:
+        p = int(a - b)
+        q = int(a + b)
+        print(p, q)
+        break
+    a += 1
+```
+
+---
+
+### A.5 Shared prime：多個 n 共用同一個 p
+
+#### 什麼時候想到？
+
+你拿到很多組：
+
+```text
+n1, n2, n3, ...
+```
+
+題目說：
+
+```text
+bad random
+reused prime
+many public keys
+```
+
+#### 核心命令 / Python
+
+```python
+from math import gcd
+
+Ns = [n1, n2, n3]
+
+for i in range(len(Ns)):
+    for j in range(i+1, len(Ns)):
+        g = gcd(Ns[i], Ns[j])
+        if g != 1:
+            print('shared prime:', i, j, g)
+```
+
+如果找到：
+
+```text
+g = p
+```
+
+那：
+
+```python
+p = g
+q = n // p
+```
+
+再走標準 RSA 解密流程。
+
+---
+
+### A.6 Common modulus：同一個 n，不同 e，加密同一個 m
+
+#### 什麼時候想到？
+
+看到：
+
+```text
+n same
+c1 = m^e1 mod n
+c2 = m^e2 mod n
+gcd(e1, e2) = 1
+```
+
+#### 原理一句話
+
+如果能找到：
+
+```text
+a*e1 + b*e2 = 1
+```
+
+那：
+
+```text
+m = c1^a * c2^b mod n
+```
+
+#### 模板
+
+```python
+from sympy import gcdex
+
+n = ...
+e1 = ...
+e2 = ...
+c1 = ...
+c2 = ...
+
+s, t, g = gcdex(e1, e2)
+assert g == 1
+
+s = int(s)
+t = int(t)
+
+def modpow_with_negative(c, exp, n):
+    if exp < 0:
+        return pow(pow(c, -1, n), -exp, n)
+    return pow(c, exp, n)
+
+m = (modpow_with_negative(c1, s, n) * modpow_with_negative(c2, t, n)) % n
+print(m.to_bytes((m.bit_length()+7)//8, 'big'))
+```
+
+---
+
+### A.7 Hastad Broadcast Attack：同一明文，小 e，多個不同 n
+
+#### 什麼時候想到？
+
+看到：
+
+```text
+e = 3
+same message encrypted to 3 recipients
+n1,n2,n3 are different and coprime
+```
+
+#### 原理一句話
+
+如果同一個 `m` 被用同一個小 `e` 加密到多個互質模數：
+
+```text
+c1 = m^e mod n1
+c2 = m^e mod n2
+c3 = m^e mod n3
+```
+
+用 CRT 合成：
+
+```text
+C = m^e
+```
+
+再開 e 次方根。
+
+#### 模板
+
+```python
+from sympy.ntheory.modular import crt
+import gmpy2
+
+Ns = [n1, n2, n3]
+Cs = [c1, c2, c3]
+e = 3
+
+C, N = crt(Ns, Cs)
+C = int(C)
+
+m, exact = gmpy2.iroot(C, e)
+print(exact)
+print(int(m).to_bytes((int(m).bit_length()+7)//8, 'big'))
+```
+
+---
+
+### A.8 已知 phi(n)：直接算 d
+
+#### 什麼時候想到？
+
+題目直接給：
+
+```text
+phi
+totient
+Euler phi
+```
+
+那就不需要 factor n。
+
+```python
+n = ...
+e = ...
+phi = ...
+c = ...
+
+d = pow(e, -1, phi)
+m = pow(c, d, n)
+print(m.to_bytes((m.bit_length()+7)//8, 'big'))
+```
+
+---
+
+### A.9 已知 p 或 q：直接算另一個因子
+
+```python
+n = ...
+p = ...
+q = n // p
+phi = (p-1)*(q-1)
+d = pow(e, -1, phi)
+m = pow(c, d, n)
+```
+
+---
+
+### A.10 已知 p+q：用二次方程解 p 和 q
+
+如果知道：
+
+```text
+s = p + q
+n = p*q
+```
+
+那：
+
+```text
+x^2 - s*x + n = 0
+```
+
+```python
+import gmpy2
+
+n = ...
+s = ...
+D = s*s - 4*n
+root = gmpy2.isqrt(D)
+
+p = (s + root) // 2
+q = (s - root) // 2
+print(p*q == n)
+```
+
+---
+
+### A.11 RSA 題最短決策樹
+
+```text
+看到 n,e,c
+│
+├─ e 很小？
+│   ├─ c 很小 / char-by-char → 開根 / 暴力 m
+│   └─ 多組相同 m → Hastad / CRT
+│
+├─ n 看起來弱？
+│   ├─ factorint(n)
+│   ├─ Fermat close primes
+│   └─ 多個 n → gcd shared prime
+│
+├─ 給了 p/q/phi/dp/dq？
+│   └─ 重建 d
+│
+├─ 同 n 多個 e？
+│   └─ common modulus
+│
+└─ 都沒有？
+    └─ 可能不是基礎 RSA 題，先看 padding / oracle / implementation bug
+```
+
+---
+
+## B. Key Header Structure：常見檔案格式 Header 解析
+
+> CTF Forensics 的第一件事通常不是「打開檔案」，而是看前幾十個 bytes。副檔名可以騙人，header 通常比較誠實。
+
+### B.0 常用查看命令
+
+```bash
+file target
+xxd -g 1 -l 64 target
+hexdump -C target | head
+strings target | head
+```
+
+- `xxd -g 1`：每 byte 分開顯示。
+- `-l 64`：只看前 64 bytes。
+- 如果副檔名和 header 不一致，優先相信 header。
+
+---
+
+### B.1 JPEG / JFIF
+
+常見開頭：
+
+```text
+FF D8 FF E0 00 10 4A 46 49 46 00 01 01 ...
+```
+
+| Offset | Bytes | 意義 |
+|---|---|---|
+| `0x00` | `FF D8` | SOI, Start of Image |
+| `0x02` | `FF E0` | APP0 Marker，JFIF 常用 |
+| `0x04` | `00 10` | APP0 segment length，通常 16 |
+| `0x06` | `4A 46 49 46 00` | ASCII `JFIF\0` |
+| 後續 | `01 01` / `01 02` | JFIF version |
+| 後續 | `00` / `01` / `02` | density units |
+| 後續 | X/Y density | 解析度 |
+| 後續 | thumbnail width/height | `00 00` 常見，表示沒有縮圖 |
+
+JPEG 常見 marker：
+
+| Marker | 意義 |
+|---|---|
+| `FF D8` | SOI 開始 |
+| `FF E0` | APP0 / JFIF |
+| `FF E1` | APP1 / EXIF |
+| `FF FE` | Comment，CTF 常藏字串 |
+| `FF DB` | Quantization Table |
+| `FF C0` | Start of Frame |
+| `FF C4` | Huffman Table |
+| `FF DA` | Start of Scan，真正壓縮影像資料開始 |
+| `FF D9` | EOI 結束 |
+
+CTF 快速檢查：
+
+```bash
+file img.jpg
+exiftool img.jpg
+strings img.jpg | grep -i 'pico\|flag\|password\|steghide'
+binwalk img.jpg
+xxd -g 1 -l 32 img.jpg
+```
+
+---
+
+### B.2 PNG
+
+固定 signature：
+
+```text
+89 50 4E 47 0D 0A 1A 0A
+```
+
+等於：
+
+```text
+\x89 PNG \r \n \x1A \n
+```
+
+PNG 由一連串 chunk 組成：
+
+```text
+[Length: 4 bytes][Type: 4 bytes][Data: N bytes][CRC: 4 bytes]
+```
+
+第一個重要 chunk 是 `IHDR`：
+
+| Offset | Bytes | 意義 |
+|---|---|---|
+| `0x00` | `89 50 4E 47 0D 0A 1A 0A` | PNG signature |
+| `0x08` | `00 00 00 0D` | IHDR data length = 13 |
+| `0x0C` | `49 48 44 52` | ASCII `IHDR` |
+| `0x10` | 4 bytes | width |
+| `0x14` | 4 bytes | height |
+| `0x18` | 1 byte | bit depth |
+| `0x19` | 1 byte | color type |
+| `0x1A` | 1 byte | compression method |
+| `0x1B` | 1 byte | filter method |
+| `0x1C` | 1 byte | interlace method |
+| `0x1D` | 4 bytes | CRC |
+
+Color type 常見值：
+
+| Value | 意義 |
+|---|---|
+| `00` | Grayscale |
+| `02` | Truecolor RGB |
+| `03` | Indexed-color |
+| `04` | Grayscale + alpha |
+| `06` | Truecolor RGB + alpha |
+
+CTF 快速檢查：
+
+```bash
+file img.png
+pngcheck -v img.png
+exiftool img.png
+strings img.png | grep -i 'pico\|flag\|secret'
+binwalk img.png
+```
+
+PNG 題常見點：
+
+```text
+IHDR 寬高被改
+IEND 後附加資料
+tEXt/iTXt/zTXt chunk 藏文字
+IDAT LSB 隱寫
+```
+
+---
+
+### B.3 ZIP Local File Header
+
+ZIP 不是只有一個 header，而是多個檔案區塊 + central directory + end record。
+
+Local File Header 開頭：
+
+```text
+50 4B 03 04
+```
+
+ASCII 是：
+
+```text
+PK\x03\x04
+```
+
+| Offset | Size | 意義 |
+|---|---:|---|
+| `0x00` | 4 | Local File Header Signature `50 4B 03 04` |
+| `0x04` | 2 | Version needed to extract |
+| `0x06` | 2 | General purpose bit flag |
+| `0x08` | 2 | Compression method |
+| `0x0A` | 2 | Last mod file time |
+| `0x0C` | 2 | Last mod file date |
+| `0x0E` | 4 | CRC-32 |
+| `0x12` | 4 | Compressed size |
+| `0x16` | 4 | Uncompressed size |
+| `0x1A` | 2 | File name length = N |
+| `0x1C` | 2 | Extra field length = M |
+| `0x1E` | N | File name |
+| after name | M | Extra field |
+
+其他 ZIP signature：
+
+| Signature | 意義 |
+|---|---|
+| `50 4B 03 04` | local file header |
+| `50 4B 01 02` | central directory file header |
+| `50 4B 05 06` | end of central directory |
+| `50 4B 07 08` | data descriptor |
+
+CTF 快速檢查：
+
+```bash
+file archive
+unzip -l archive
+binwalk archive
+strings archive | head
+xxd -g 1 -l 64 archive
+```
+
+如果 JPG/PNG/PDF 裡面 `binwalk` 看到 `Zip archive`，試：
+
+```bash
+binwalk -e file
+unzip extracted.zip
+```
+
+---
+
+### B.4 PE / EXE / DLL
+
+Windows executable 常見開頭：
+
+```text
+4D 5A
+```
+
+ASCII：
+
+```text
+MZ
+```
+
+| Offset | Bytes | 意義 |
+|---|---|---|
+| `0x00` | `4D 5A` | DOS Magic `MZ` |
+| `0x3C` | 4 bytes | `e_lfanew`，PE header offset，little-endian |
+| `e_lfanew` | `50 45 00 00` | PE Signature `PE\0\0` |
+| `e_lfanew + 4` | 2 bytes | Machine Type |
+| `e_lfanew + 6` | 2 bytes | Number of Sections |
+
+Machine type 常見：
+
+| Bytes | 意義 |
+|---|---|
+| `4C 01` | x86 |
+| `64 86` | x64 / AMD64 |
+
+快速讀 `e_lfanew`：
+
+```bash
+xxd -g 1 -s 0x3c -l 4 file.exe
+```
+
+注意 little-endian，例如：
+
+```text
+E0 00 00 00 = 0x000000E0
+```
+
+快速檢查：
+
+```bash
+file file.exe
+strings file.exe | grep -i 'flag\|pico\|password'
+objdump -x file.exe | head
+```
+
+---
+
+### B.5 ELF Linux Binary
+
+開頭：
+
+```text
+7F 45 4C 46
+```
+
+ASCII：
+
+```text
+\x7f ELF
+```
+
+| Offset | Bytes | 意義 |
+|---|---|---|
+| `0x00` | `7F 45 4C 46` | ELF magic |
+| `0x04` | `01` / `02` | 32-bit / 64-bit |
+| `0x05` | `01` / `02` | little-endian / big-endian |
+| `0x06` | `01` | ELF version |
+
+CTF 快速檢查：
+
+```bash
+file vuln
+checksec --file=vuln
+strings vuln | grep -i 'flag\|pico'
+nm vuln | grep ' win\| main\| vuln'
+objdump -d vuln | grep '<win>'
+```
+
+---
+
+### B.6 PDF
+
+開頭：
+
+```text
+25 50 44 46 2D
+```
+
+ASCII：
+
+```text
+%PDF-
+```
+
+常見結構：
+
+```text
+%PDF-1.7
+1 0 obj
+...
+endobj
+xref
+trailer
+startxref
+%%EOF
+```
+
+PDF CTF 常見藏法：
+
+```text
+/Author(base64...)
+/Title(...)
+/Producer(...)
+/EmbeddedFile
+/JS
+/IEND 後附加資料（如果其實混了圖像）
+```
+
+快速檢查：
+
+```bash
+file doc.pdf
+strings doc.pdf | grep -i 'pico\|flag\|author\|title\|base64\|secret'
+exiftool doc.pdf
+binwalk doc.pdf
+```
+
+如果有 `pdftotext`：
+
+```bash
+pdftotext doc.pdf -
+pdftotext doc.pdf out.txt
+```
+
+---
+
+### B.7 其他常見 Magic Headers
+
+| 格式 | Header / Magic | 命令 |
+|---|---|---|
+| GIF | `47 49 46 38 37 61` / `47 49 46 38 39 61` | `file`, `strings` |
+| BMP | `42 4D` | `file`, `xxd` |
+| WAV | `52 49 46 46 .... 57 41 56 45` | `file`, `strings`, `xxd` |
+| MP3 ID3 | `49 44 33` | `file`, `strings` |
+| Gzip | `1F 8B 08` | `gzip -d`, `file` |
+| Bzip2 | `42 5A 68` | `bzip2 -d` |
+| XZ | `FD 37 7A 58 5A 00` | `xz -d` |
+| 7z | `37 7A BC AF 27 1C` | `7z` 若可用，否則 `binwalk` |
+| RAR | `52 61 72 21 1A 07` | `file`, `binwalk` |
+| SQLite | `53 51 4C 69 74 65 20 66 6F 72 6D 61 74 20 33 00` | `sqlite3` |
+| PCAP | `D4 C3 B2 A1` / `A1 B2 C3 D4` | `tshark`, `tcpdump` |
+| PCAPNG | `0A 0D 0D 0A` | `tshark` |
+
+---
+
+## C. URL Decode / Encode
+
+### C.1 URL encoding 是什麼？
+
+URL 裡有些字元不能直接出現，所以會變成 `%xx`：
+
+| 原字元 | URL encoded |
+|---|---|
+| `:` | `%3A` |
+| `/` | `%2F` |
+| `?` | `%3F` |
+| `=` | `%3D` |
+| `&` | `%26` |
+| 空格 | `%20` 或 `+` |
+| 中文 | UTF-8 bytes 再 `%xx` |
+
+例如：
+
+```text
+https%3A%2F%2Fexample.com%2Fsearch%3Fq%3Dpython%2Bcode
+```
+
+解碼後：
+
+```text
+https://example.com/search?q=python code
+```
+
+注意：`+` 只有在 query parameter / form encoding 裡通常代表空格。
+
+---
+
+### C.2 CLI URL decode：Python 最穩
+
+```bash
+python3 -c 'import urllib.parse,sys; print(urllib.parse.unquote_plus(sys.argv[1]))' 'https%3A%2F%2Fexample.com%2Fsearch%3Fq%3Dpython%2Bcode%26lang%3D%E4%B8%AD%E6%96%87'
+```
+
+只解 `%xx`，不把 `+` 當空格：
+
+```bash
+python3 -c 'import urllib.parse,sys; print(urllib.parse.unquote(sys.argv[1]))' 'a+b%20c'
+```
+
+把 `+` 也當空格：
+
+```bash
+python3 -c 'import urllib.parse,sys; print(urllib.parse.unquote_plus(sys.argv[1]))' 'a+b%20c'
+```
+
+---
+
+### C.3 CLI URL encode
+
+```bash
+python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' 'https://example.com/search?q=python code&lang=中文'
+```
+
+如果是 query value：
+
+```bash
+python3 -c 'import urllib.parse,sys; print(urllib.parse.quote_plus(sys.argv[1]))' 'python code 中文'
+```
+
+`jq` 也可以 encode：
+
+```bash
+printf '%s' 'python code 中文' | jq -sRr @uri
+```
+
+---
+
+### C.4 Manual URL decode 函數
+
+```python
+def manual_url_decode(encoded_str):
+    # In query/form encoding, '+' usually means space.
+    encoded_str = encoded_str.replace('+', ' ')
+
+    decoded_bytes = bytearray()
+    i = 0
+    length = len(encoded_str)
+
+    while i < length:
+        if encoded_str[i] == '%':
+            hex_value = encoded_str[i+1:i+3]
+            decoded_bytes.append(int(hex_value, 16))
+            i += 3
+        else:
+            decoded_bytes.append(ord(encoded_str[i]))
+            i += 1
+
+    return decoded_bytes.decode('utf-8')
+
+encoded_url = 'https%3A%2F%2Fexample.com%2Fsearch%3Fq%3Dpython%2Bcode%26lang%3D%E4%B8%AD%E6%96%87'
+print(manual_url_decode(encoded_url))
+```
+
+CTF 用途：
+
+```text
+Web log
+HTTP request
+cookie
+redirect URL
+payload encoded 多層
+```
+
+如果解一次還像 `%xx`，再解一次。
+
+---
+
+## D. Encoding / Decoding CLI 轉換大全
+
+### D.0 判斷 encoding 的直覺
+
+| 看到 | 第一反應 |
+|---|---|
+| `aGVsbG8=` | Base64 |
+| `68656c6c6f` | Hex |
+| `01001000 01101001` | Binary ASCII |
+| `&#112;&#105;...` | HTML entity |
+| `%70%69%63%6f` | URL encoding |
+| `cvpbPGS` | ROT13 可能 |
+| `\x70\x69\x63\x6f` | escaped hex bytes |
+| `112 105 99 111` | decimal ASCII |
+| `160 151 143 157` | octal ASCII 可能 |
+
+---
+
+### D.1 Base64
+
+Decode：
+
+```bash
+echo 'aGVsbG8=' | base64 -d
+```
+
+Encode：
+
+```bash
+echo -n 'hello' | base64
+```
+
+移除換行再 decode：
+
+```bash
+cat data.txt | tr -d '\n ' | base64 -d > out
+```
+
+如果是 URL-safe base64：
+
+```bash
+python3 -c 'import base64,sys; s=sys.argv[1]; s+= "="*((4-len(s)%4)%4); print(base64.urlsafe_b64decode(s))' 'cGljb0NURg'
+```
+
+---
+
+### D.2 Base32
+
+如果系統有 `base32`：
+
+```bash
+echo 'NBSWY3DPEB3W64TMMQ======' | base32 -d
+```
+
+Python 穩定版：
+
+```bash
+python3 -c 'import base64,sys; print(base64.b32decode(sys.argv[1]).decode())' 'NBSWY3DPEB3W64TMMQ======'
+```
+
+---
+
+### D.3 Hex string ↔ bytes
+
+Hex → bytes/text：
+
+```bash
+echo -n '68656c6c6f' | xxd -r -p
+```
+
+bytes/file → hex：
+
+```bash
+xxd -p file
+```
+
+只看前 64 bytes：
+
+```bash
+xxd -g 1 -l 64 file
+```
+
+Hex dump：
+
+```bash
+hexdump -C file | head
+```
+
+---
+
+### D.4 Decimal ↔ Hex
+
+十進位轉十六進位：
+
+```bash
+printf '0x%x\n' 255
+```
+
+十六進位轉十進位：
+
+```bash
+printf '%d\n' 0xff
+```
+
+Bash arithmetic：
+
+```bash
+echo $((0xff))
+```
+
+地址計算：
+
+```bash
+printf '0x%x\n' $((0x614551e6f33d - 0x96))
+```
+
+---
+
+### D.5 Binary bits → text / file
+
+如果是 `0100100001101001`：
+
+```bash
+cat bits.txt | tr -d ' \n' | fold -w8 | while read b; do printf "\\$(printf '%03o' "$((2#$b))")"; done
+```
+
+Python 寫成檔案：
+
+```python
+with open('digits.bin', 'r') as f:
+    bits = f.read().strip()
+
+data = bytes(int(bits[i:i+8], 2) for i in range(0, len(bits), 8))
+
+with open('recovered_file', 'wb') as f:
+    f.write(data)
+```
+
+判斷結果：
+
+```bash
+file recovered_file
+strings recovered_file | head
+```
+
+---
+
+### D.6 ASCII decimal → text
+
+```bash
+printf '%s\n' '112 105 99 111' | awk '{for(i=1;i<=NF;i++) printf "%c", $i; print ""}'
+```
+
+Python：
+
+```bash
+python3 -c 'print("".join(chr(int(x)) for x in "112 105 99 111".split()))'
+```
+
+字元 → ASCII：
+
+```bash
+python3 -c 'print(ord("A"))'
+```
+
+ASCII → 字元：
+
+```bash
+python3 -c 'print(chr(65))'
+```
+
+---
+
+### D.7 Octal bytes
+
+Octal escape → text：
+
+```bash
+printf '\160\151\143\157\012'
+```
+
+十進位轉 octal：
+
+```bash
+printf '%o\n' 112
+```
+
+Octal 轉十進位：
+
+```bash
+printf '%d\n' 0160
+```
+
+---
+
+### D.8 ROT13
+
+```bash
+echo 'cvpbPGS' | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+```
+
+常見特徵：
+
+```text
+picoCTF -> cvpbPGS
+```
+
+---
+
+### D.9 URL encoding
+
+Decode：
+
+```bash
+python3 -c 'import urllib.parse,sys; print(urllib.parse.unquote_plus(sys.argv[1]))' 'pico%43TF%7Btest%7D'
+```
+
+Encode：
+
+```bash
+python3 -c 'import urllib.parse,sys; print(urllib.parse.quote_plus(sys.argv[1]))' 'picoCTF{test}'
+```
+
+---
+
+### D.10 HTML entities
+
+```bash
+python3 -c 'import html,sys; print(html.unescape(sys.argv[1]))' '&#112;&#105;&#99;&#111;CTF&#123;test&#125;'
+```
+
+---
+
+### D.11 Escaped hex：`\x70\x69...`
+
+```bash
+printf '\x70\x69\x63\x6f\x43\x54\x46\x0a'
+```
+
+如果字串在檔案裡：
+
+```bash
+python3 -c 'import codecs,sys; print(codecs.decode(sys.argv[1], "unicode_escape"))' '\x70\x69\x63\x6f'
+```
+
+---
+
+### D.12 JWT payload decode
+
+JWT 長這樣：
+
+```text
+header.payload.signature
+```
+
+只看 payload：
+
+```bash
+TOKEN='xxx.yyy.zzz'
+python3 -c 'import sys,base64,json; p=sys.argv[1].split(".")[1]; p += "="*((4-len(p)%4)%4); print(base64.urlsafe_b64decode(p).decode())' "$TOKEN"
+```
+
+---
+
+### D.13 XOR single-byte decode
+
+```python
+ct = bytes.fromhex('3e272d21')
+for key in range(256):
+    pt = bytes([b ^ key for b in ct])
+    if b'pico' in pt or all(32 <= x < 127 for x in pt):
+        print(key, pt)
+```
+
+如果已知 key：
+
+```python
+ct = bytes.fromhex('3e272d210d1a')
+key = 0x4e
+print(bytes([b ^ key for b in ct]))
+```
+
+---
+
+### D.14 UTF-8 bytes decode
+
+如果看到：
+
+```text
+E4 B8 AD E6 96 87
+```
+
+```bash
+echo -n 'e4b8ade69687' | xxd -r -p
+```
+
+Python：
+
+```bash
+python3 -c 'print(bytes.fromhex("e4b8ade69687").decode("utf-8"))'
+```
+
+---
+
+### D.15 Encoding 多層解碼流程
+
+遇到一大串可疑文字：
+
+```text
+先看形狀
+↓
+Base64? Hex? URL? Binary?
+↓
+Decode 一層
+↓
+file / strings 看結果
+↓
+如果仍然像 encoded，再 decode 下一層
+```
+
+實戰命令：
+
+```bash
+# base64 → file
+cat data.txt | tr -d '\n ' | base64 -d > out
+file out
+strings out | head
+
+# hex → file
+echo -n '...' | xxd -r -p > out
+file out
+strings out | head
+
+# binary bits → file
+python3 -c 's=open("bits.txt").read().strip(); open("out","wb").write(bytes(int(s[i:i+8],2) for i in range(0,len(s),8)))'
+file out
+```
+
+---
+
+## E. 速查：拿到不同輸入時的第一反應
+
+| 輸入 | 第一反應 | 命令 |
+|---|---|---|
+| `.jpg` | metadata / stego | `file`, `exiftool`, `strings`, `binwalk` |
+| `.png` | chunks / LSB / appended data | `pngcheck`, `strings`, `binwalk` |
+| `.pdf` | metadata / objects | `strings`, `exiftool`, `binwalk`, `pdftotext` |
+| `.pcap` | protocol / stream | `tshark -r`, `strings`, follow stream |
+| `010101...` | bits to bytes | `fold -w8`, Python bytes |
+| `%70%69...` | URL decode | `urllib.parse.unquote_plus` |
+| `aGV...==` | Base64 | `base64 -d` |
+| `68656c...` | Hex | `xxd -r -p` |
+| `n,e,c` | RSA | `factorint`, `iroot`, `pow(c,d,n)` |
+| `g,p,A,b,enc` | DH | `shared=pow(A,b,p)` |
+| ELF | pwn/re | `file`, `checksec`, `strings`, `objdump`, `nm`, `gdb` |
+
