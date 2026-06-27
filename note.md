@@ -1,7 +1,29 @@
-# ICOA CLI & CTF Playbook v2
+# ICOA CLI & CTF Playbook v3 — Terminal Friendly
 
 > 目的：這不是 Linux manual。這是給 ICOA / PicoCTF / CTF 實戰用的 **80/20 指令手冊**。  
 > 讀法：看到題目先按「題型 → 工具鏈 → 常用命令」走，不要死背全部參數。
+> v3 改動：移除 Markdown 表格，改成 terminal-friendly list，方便用 `less`, `grep`, `sed`, `vim -R` 閱讀。
+
+---
+
+## 0.0 CLI 閱讀方式
+
+這版避免使用 Markdown table，因為 terminal 裡表格容易錯位。建議這樣查：
+
+```bash
+grep -n "RSA" ICOA_CLI_CTF_Playbook_v3_terminal_friendly.md
+less +1390 ICOA_CLI_CTF_Playbook_v3_terminal_friendly.md
+sed -n '1390,1450p' ICOA_CLI_CTF_Playbook_v3_terminal_friendly.md
+vim -R ICOA_CLI_CTF_Playbook_v3_terminal_friendly.md
+```
+
+閱讀時只記三個動作：
+
+```text
+grep -n keyword file   # 找位置
+less +line file        # 跳到位置閱讀
+sed -n 'a,bp' file     # 印出指定行段
+```
 
 ---
 
@@ -11,18 +33,49 @@
 
 看到檔案或服務時，第一步不是亂試工具，而是先分類：
 
-| 你看到 | 第一反應 | 第一批工具 |
-|---|---|---|
-| `.jpg` / `.png` | 圖片 / Stego / metadata | `file`, `strings`, `exiftool`, `binwalk`, `pngcheck` |
-| `.pdf` | PDF metadata / embedded objects | `file`, `strings`, `grep`, `exiftool`, `binwalk`, `pdftotext` |
-| `.pcap` | 網路封包 | `tshark`, `tcpdump`, `strings` |
-| ELF binary | Pwn / RE | `file`, `checksec`, `strings`, `objdump`, `nm`, `gdb` |
-| 一大段 `010101` | binary bits | `fold`, `xxd`, Python bytes |
-| 一大段 `aGV...==` | Base64 | `base64 -d` |
-| `n, e, ciphertext` | RSA | `sympy`, `gmpy2`, `pycryptodome`, `openssl` |
-| `g, p, A, B, shared` | Diffie-Hellman | Python `pow()`, `sympy` |
-| `curl`, `/login`, cookie | Web / session | `curl`, `grep`, `jq`, `sqlite3` |
-| `nc host port` | 互動服務 | `nc`, `pwntools`, `socat` |
+
+> 終端友好列表： 你看到 / 第一反應 / 第一批工具
+
+- **你看到:** `.jpg` / `.png`
+  - **第一反應:** 圖片 / Stego / metadata
+  - **第一批工具:** `file`, `strings`, `exiftool`, `binwalk`, `pngcheck`
+
+- **你看到:** `.pdf`
+  - **第一反應:** PDF metadata / embedded objects
+  - **第一批工具:** `file`, `strings`, `grep`, `exiftool`, `binwalk`, `pdftotext`
+
+- **你看到:** `.pcap`
+  - **第一反應:** 網路封包
+  - **第一批工具:** `tshark`, `tcpdump`, `strings`
+
+- **你看到:** ELF binary
+  - **第一反應:** Pwn / RE
+  - **第一批工具:** `file`, `checksec`, `strings`, `objdump`, `nm`, `gdb`
+
+- **你看到:** 一大段 `010101`
+  - **第一反應:** binary bits
+  - **第一批工具:** `fold`, `xxd`, Python bytes
+
+- **你看到:** 一大段 `aGV...==`
+  - **第一反應:** Base64
+  - **第一批工具:** `base64 -d`
+
+- **你看到:** `n, e, ciphertext`
+  - **第一反應:** RSA
+  - **第一批工具:** `sympy`, `gmpy2`, `pycryptodome`, `openssl`
+
+- **你看到:** `g, p, A, B, shared`
+  - **第一反應:** Diffie-Hellman
+  - **第一批工具:** Python `pow()`, `sympy`
+
+- **你看到:** `curl`, `/login`, cookie
+  - **第一反應:** Web / session
+  - **第一批工具:** `curl`, `grep`, `jq`, `sqlite3`
+
+- **你看到:** `nc host port`
+  - **第一反應:** 互動服務
+  - **第一批工具:** `nc`, `pwntools`, `socat`
+
 
 ### 0.2 萬能第一步
 
@@ -55,14 +108,33 @@ strings out | grep -i pico
 
 ### 0.4 不要把工具用錯
 
-| 錯誤 | 原因 | 正確 |
-|---|---|---|
-| `objdump -d file.pdf` | `objdump` 是 binary/ELF 工具，不是 PDF 工具 | `strings`, `exiftool`, `binwalk` |
-| `cat "base64string"` | `cat` 讀檔案，不是處理字串 | `echo "..." \| base64 -d` |
-| `echo 123 | xxd -p` | 會把字串 `123` 變成 ASCII hex `313233` | `printf '%x\n' 123` |
-| `python3 'print(...)'` | Python 以為那是檔名 | `python3 -c 'print(...)'` |
-| `grep -o pico` | 只輸出 `pico` 這個匹配片段 | `grep -io 'picoCTF{[^}]*}' file` |
-| 在 `nc` 裡輸入 `pip install` | `nc` 不是 shell，只是連遠端服務 | 先 `Ctrl+C` 回 shell |
+
+> 終端友好列表： 錯誤 / 原因 / 正確
+
+- **錯誤:** `objdump -d file.pdf`
+  - **原因:** `objdump` 是 binary/ELF 工具，不是 PDF 工具
+  - **正確:** `strings`, `exiftool`, `binwalk`
+
+- **錯誤:** `cat "base64string"`
+  - **原因:** `cat` 讀檔案，不是處理字串
+  - **正確:** `echo "..." | base64 -d`
+
+- **錯誤:** `echo 123 | xxd -p`
+  - **原因:** 會把字串 `123` 變成 ASCII hex `313233`
+  - **正確:** `printf '%x\n' 123`
+
+- **錯誤:** `python3 'print(...)'`
+  - **原因:** Python 以為那是檔名
+  - **正確:** `python3 -c 'print(...)'`
+
+- **錯誤:** `grep -o pico`
+  - **原因:** 只輸出 `pico` 這個匹配片段
+  - **正確:** `grep -io 'picoCTF{[^}]*}' file`
+
+- **錯誤:** 在 `nc` 裡輸入 `pip install`
+  - **原因:** `nc` 不是 shell，只是連遠端服務
+  - **正確:** 先 `Ctrl+C` 回 shell
+
 
 ---
 
@@ -1355,16 +1427,41 @@ git commit --amend --author="root <root@picoctf>" --no-edit
 
 # 15. 錯誤對照表
 
-| 你遇過的錯 | 本質 | 正確理解 |
-|---|---|---|
-| `cat vuln` 亂碼 | binary 不是文字 | 用 `strings`, `objdump`, `file` |
-| `objdump pdf` 失敗 | PDF 不是 executable | PDF 用 `strings`, `exiftool` |
-| `xxd` 轉 decimal 失敗 | `xxd` 處理 bytes，不是數字進制 | decimal→hex 用 `printf '%x\n'` |
-| `grep -o pico` 只出 pico | `-o` 只輸出匹配片段 | 用完整 regex |
-| Python `decode()` 太早 | XOR 要對 bytes 做 | 解密完再 decode |
-| zsh `pipe dquote>` | 引號沒關或用了智能引號 | 用普通英文引號 |
-| `a = 1` in shell | shell 不是 Python | 進 `python3` 或寫 `.py` |
-| `pip install` in nc | nc 是遠端互動，不是 shell | Ctrl+C 回本地 shell |
+
+> 終端友好列表： 你遇過的錯 / 本質 / 正確理解
+
+- **你遇過的錯:** `cat vuln` 亂碼
+  - **本質:** binary 不是文字
+  - **正確理解:** 用 `strings`, `objdump`, `file`
+
+- **你遇過的錯:** `objdump pdf` 失敗
+  - **本質:** PDF 不是 executable
+  - **正確理解:** PDF 用 `strings`, `exiftool`
+
+- **你遇過的錯:** `xxd` 轉 decimal 失敗
+  - **本質:** `xxd` 處理 bytes，不是數字進制
+  - **正確理解:** decimal→hex 用 `printf '%x\n'`
+
+- **你遇過的錯:** `grep -o pico` 只出 pico
+  - **本質:** `-o` 只輸出匹配片段
+  - **正確理解:** 用完整 regex
+
+- **你遇過的錯:** Python `decode()` 太早
+  - **本質:** XOR 要對 bytes 做
+  - **正確理解:** 解密完再 decode
+
+- **你遇過的錯:** zsh `pipe dquote>`
+  - **本質:** 引號沒關或用了智能引號
+  - **正確理解:** 用普通英文引號
+
+- **你遇過的錯:** `a = 1` in shell
+  - **本質:** shell 不是 Python
+  - **正確理解:** 進 `python3` 或寫 `.py`
+
+- **你遇過的錯:** `pip install` in nc
+  - **本質:** nc 是遠端互動，不是 shell
+  - **正確理解:** Ctrl+C 回本地 shell
+
 
 ---
 
@@ -1401,16 +1498,41 @@ ciphertext = ...
 
 先不要急著寫解密程式，先分類：
 
-| 現象 | 可能題型 | 第一反應 |
-|---|---|---|
-| `e = 3` / `e = 5` 且 `ciphertext` 很小 | small exponent / no padding | 試 `e` 次方根 |
-| `n` 不大或題目說 weak primes | weak factorization | factor `n` |
-| 多個 `n`，同一個 `e`，同一個 message | Hastad broadcast | CRT + 開根 |
-| 多個 `n` 有共同因子 | shared prime | 對所有 `n` 做 `gcd` |
-| 同一個 `n`，兩個不同 `e` 加密同一個 message | common modulus | Extended Euclid |
-| 已知 `p` / `q` / `phi` / `dp` / `dq` | key leak | 重建 `d` |
-| `d` 異常小 | Wiener's attack | continued fractions |
-| 每個 ciphertext 都像 `17623416832, 10510100501...` | char-by-char RSA | 每個數開根或暴力字元 |
+
+> 終端友好列表： 現象 / 可能題型 / 第一反應
+
+- **現象:** `e = 3` / `e = 5` 且 `ciphertext` 很小
+  - **可能題型:** small exponent / no padding
+  - **第一反應:** 試 `e` 次方根
+
+- **現象:** `n` 不大或題目說 weak primes
+  - **可能題型:** weak factorization
+  - **第一反應:** factor `n`
+
+- **現象:** 多個 `n`，同一個 `e`，同一個 message
+  - **可能題型:** Hastad broadcast
+  - **第一反應:** CRT + 開根
+
+- **現象:** 多個 `n` 有共同因子
+  - **可能題型:** shared prime
+  - **第一反應:** 對所有 `n` 做 `gcd`
+
+- **現象:** 同一個 `n`，兩個不同 `e` 加密同一個 message
+  - **可能題型:** common modulus
+  - **第一反應:** Extended Euclid
+
+- **現象:** 已知 `p` / `q` / `phi` / `dp` / `dq`
+  - **可能題型:** key leak
+  - **第一反應:** 重建 `d`
+
+- **現象:** `d` 異常小
+  - **可能題型:** Wiener's attack
+  - **第一反應:** continued fractions
+
+- **現象:** 每個 ciphertext 都像 `17623416832, 10510100501...`
+  - **可能題型:** char-by-char RSA
+  - **第一反應:** 每個數開根或暴力字元
+
 
 RSA 的基本式：
 
@@ -1947,30 +2069,74 @@ strings target | head
 FF D8 FF E0 00 10 4A 46 49 46 00 01 01 ...
 ```
 
-| Offset | Bytes | 意義 |
-|---|---|---|
-| `0x00` | `FF D8` | SOI, Start of Image |
-| `0x02` | `FF E0` | APP0 Marker，JFIF 常用 |
-| `0x04` | `00 10` | APP0 segment length，通常 16 |
-| `0x06` | `4A 46 49 46 00` | ASCII `JFIF\0` |
-| 後續 | `01 01` / `01 02` | JFIF version |
-| 後續 | `00` / `01` / `02` | density units |
-| 後續 | X/Y density | 解析度 |
-| 後續 | thumbnail width/height | `00 00` 常見，表示沒有縮圖 |
+
+> 終端友好列表： Offset / Bytes / 意義
+
+- **Offset:** `0x00`
+  - **Bytes:** `FF D8`
+  - **意義:** SOI, Start of Image
+
+- **Offset:** `0x02`
+  - **Bytes:** `FF E0`
+  - **意義:** APP0 Marker，JFIF 常用
+
+- **Offset:** `0x04`
+  - **Bytes:** `00 10`
+  - **意義:** APP0 segment length，通常 16
+
+- **Offset:** `0x06`
+  - **Bytes:** `4A 46 49 46 00`
+  - **意義:** ASCII `JFIF\0`
+
+- **Offset:** 後續
+  - **Bytes:** `01 01` / `01 02`
+  - **意義:** JFIF version
+
+- **Offset:** 後續
+  - **Bytes:** `00` / `01` / `02`
+  - **意義:** density units
+
+- **Offset:** 後續
+  - **Bytes:** X/Y density
+  - **意義:** 解析度
+
+- **Offset:** 後續
+  - **Bytes:** thumbnail width/height
+  - **意義:** `00 00` 常見，表示沒有縮圖
+
 
 JPEG 常見 marker：
 
-| Marker | 意義 |
-|---|---|
-| `FF D8` | SOI 開始 |
-| `FF E0` | APP0 / JFIF |
-| `FF E1` | APP1 / EXIF |
-| `FF FE` | Comment，CTF 常藏字串 |
-| `FF DB` | Quantization Table |
-| `FF C0` | Start of Frame |
-| `FF C4` | Huffman Table |
-| `FF DA` | Start of Scan，真正壓縮影像資料開始 |
-| `FF D9` | EOI 結束 |
+
+> 終端友好列表： Marker / 意義
+
+- **Marker:** `FF D8`
+  - **意義:** SOI 開始
+
+- **Marker:** `FF E0`
+  - **意義:** APP0 / JFIF
+
+- **Marker:** `FF E1`
+  - **意義:** APP1 / EXIF
+
+- **Marker:** `FF FE`
+  - **意義:** Comment，CTF 常藏字串
+
+- **Marker:** `FF DB`
+  - **意義:** Quantization Table
+
+- **Marker:** `FF C0`
+  - **意義:** Start of Frame
+
+- **Marker:** `FF C4`
+  - **意義:** Huffman Table
+
+- **Marker:** `FF DA`
+  - **意義:** Start of Scan，真正壓縮影像資料開始
+
+- **Marker:** `FF D9`
+  - **意義:** EOI 結束
+
 
 CTF 快速檢查：
 
@@ -2006,29 +2172,74 @@ PNG 由一連串 chunk 組成：
 
 第一個重要 chunk 是 `IHDR`：
 
-| Offset | Bytes | 意義 |
-|---|---|---|
-| `0x00` | `89 50 4E 47 0D 0A 1A 0A` | PNG signature |
-| `0x08` | `00 00 00 0D` | IHDR data length = 13 |
-| `0x0C` | `49 48 44 52` | ASCII `IHDR` |
-| `0x10` | 4 bytes | width |
-| `0x14` | 4 bytes | height |
-| `0x18` | 1 byte | bit depth |
-| `0x19` | 1 byte | color type |
-| `0x1A` | 1 byte | compression method |
-| `0x1B` | 1 byte | filter method |
-| `0x1C` | 1 byte | interlace method |
-| `0x1D` | 4 bytes | CRC |
+
+> 終端友好列表： Offset / Bytes / 意義
+
+- **Offset:** `0x00`
+  - **Bytes:** `89 50 4E 47 0D 0A 1A 0A`
+  - **意義:** PNG signature
+
+- **Offset:** `0x08`
+  - **Bytes:** `00 00 00 0D`
+  - **意義:** IHDR data length = 13
+
+- **Offset:** `0x0C`
+  - **Bytes:** `49 48 44 52`
+  - **意義:** ASCII `IHDR`
+
+- **Offset:** `0x10`
+  - **Bytes:** 4 bytes
+  - **意義:** width
+
+- **Offset:** `0x14`
+  - **Bytes:** 4 bytes
+  - **意義:** height
+
+- **Offset:** `0x18`
+  - **Bytes:** 1 byte
+  - **意義:** bit depth
+
+- **Offset:** `0x19`
+  - **Bytes:** 1 byte
+  - **意義:** color type
+
+- **Offset:** `0x1A`
+  - **Bytes:** 1 byte
+  - **意義:** compression method
+
+- **Offset:** `0x1B`
+  - **Bytes:** 1 byte
+  - **意義:** filter method
+
+- **Offset:** `0x1C`
+  - **Bytes:** 1 byte
+  - **意義:** interlace method
+
+- **Offset:** `0x1D`
+  - **Bytes:** 4 bytes
+  - **意義:** CRC
+
 
 Color type 常見值：
 
-| Value | 意義 |
-|---|---|
-| `00` | Grayscale |
-| `02` | Truecolor RGB |
-| `03` | Indexed-color |
-| `04` | Grayscale + alpha |
-| `06` | Truecolor RGB + alpha |
+
+> 終端友好列表： Value / 意義
+
+- **Value:** `00`
+  - **意義:** Grayscale
+
+- **Value:** `02`
+  - **意義:** Truecolor RGB
+
+- **Value:** `03`
+  - **意義:** Indexed-color
+
+- **Value:** `04`
+  - **意義:** Grayscale + alpha
+
+- **Value:** `06`
+  - **意義:** Truecolor RGB + alpha
+
 
 CTF 快速檢查：
 
@@ -2067,30 +2278,79 @@ ASCII 是：
 PK\x03\x04
 ```
 
-| Offset | Size | 意義 |
-|---|---:|---|
-| `0x00` | 4 | Local File Header Signature `50 4B 03 04` |
-| `0x04` | 2 | Version needed to extract |
-| `0x06` | 2 | General purpose bit flag |
-| `0x08` | 2 | Compression method |
-| `0x0A` | 2 | Last mod file time |
-| `0x0C` | 2 | Last mod file date |
-| `0x0E` | 4 | CRC-32 |
-| `0x12` | 4 | Compressed size |
-| `0x16` | 4 | Uncompressed size |
-| `0x1A` | 2 | File name length = N |
-| `0x1C` | 2 | Extra field length = M |
-| `0x1E` | N | File name |
-| after name | M | Extra field |
+
+> 終端友好列表： Offset / Size / 意義
+
+- **Offset:** `0x00`
+  - **Size:** 4
+  - **意義:** Local File Header Signature `50 4B 03 04`
+
+- **Offset:** `0x04`
+  - **Size:** 2
+  - **意義:** Version needed to extract
+
+- **Offset:** `0x06`
+  - **Size:** 2
+  - **意義:** General purpose bit flag
+
+- **Offset:** `0x08`
+  - **Size:** 2
+  - **意義:** Compression method
+
+- **Offset:** `0x0A`
+  - **Size:** 2
+  - **意義:** Last mod file time
+
+- **Offset:** `0x0C`
+  - **Size:** 2
+  - **意義:** Last mod file date
+
+- **Offset:** `0x0E`
+  - **Size:** 4
+  - **意義:** CRC-32
+
+- **Offset:** `0x12`
+  - **Size:** 4
+  - **意義:** Compressed size
+
+- **Offset:** `0x16`
+  - **Size:** 4
+  - **意義:** Uncompressed size
+
+- **Offset:** `0x1A`
+  - **Size:** 2
+  - **意義:** File name length = N
+
+- **Offset:** `0x1C`
+  - **Size:** 2
+  - **意義:** Extra field length = M
+
+- **Offset:** `0x1E`
+  - **Size:** N
+  - **意義:** File name
+
+- **Offset:** after name
+  - **Size:** M
+  - **意義:** Extra field
+
 
 其他 ZIP signature：
 
-| Signature | 意義 |
-|---|---|
-| `50 4B 03 04` | local file header |
-| `50 4B 01 02` | central directory file header |
-| `50 4B 05 06` | end of central directory |
-| `50 4B 07 08` | data descriptor |
+
+> 終端友好列表： Signature / 意義
+
+- **Signature:** `50 4B 03 04`
+  - **意義:** local file header
+
+- **Signature:** `50 4B 01 02`
+  - **意義:** central directory file header
+
+- **Signature:** `50 4B 05 06`
+  - **意義:** end of central directory
+
+- **Signature:** `50 4B 07 08`
+  - **意義:** data descriptor
+
 
 CTF 快速檢查：
 
@@ -2125,20 +2385,41 @@ ASCII：
 MZ
 ```
 
-| Offset | Bytes | 意義 |
-|---|---|---|
-| `0x00` | `4D 5A` | DOS Magic `MZ` |
-| `0x3C` | 4 bytes | `e_lfanew`，PE header offset，little-endian |
-| `e_lfanew` | `50 45 00 00` | PE Signature `PE\0\0` |
-| `e_lfanew + 4` | 2 bytes | Machine Type |
-| `e_lfanew + 6` | 2 bytes | Number of Sections |
+
+> 終端友好列表： Offset / Bytes / 意義
+
+- **Offset:** `0x00`
+  - **Bytes:** `4D 5A`
+  - **意義:** DOS Magic `MZ`
+
+- **Offset:** `0x3C`
+  - **Bytes:** 4 bytes
+  - **意義:** `e_lfanew`，PE header offset，little-endian
+
+- **Offset:** `e_lfanew`
+  - **Bytes:** `50 45 00 00`
+  - **意義:** PE Signature `PE\0\0`
+
+- **Offset:** `e_lfanew + 4`
+  - **Bytes:** 2 bytes
+  - **意義:** Machine Type
+
+- **Offset:** `e_lfanew + 6`
+  - **Bytes:** 2 bytes
+  - **意義:** Number of Sections
+
 
 Machine type 常見：
 
-| Bytes | 意義 |
-|---|---|
-| `4C 01` | x86 |
-| `64 86` | x64 / AMD64 |
+
+> 終端友好列表： Bytes / 意義
+
+- **Bytes:** `4C 01`
+  - **意義:** x86
+
+- **Bytes:** `64 86`
+  - **意義:** x64 / AMD64
+
 
 快速讀 `e_lfanew`：
 
@@ -2176,12 +2457,25 @@ ASCII：
 \x7f ELF
 ```
 
-| Offset | Bytes | 意義 |
-|---|---|---|
-| `0x00` | `7F 45 4C 46` | ELF magic |
-| `0x04` | `01` / `02` | 32-bit / 64-bit |
-| `0x05` | `01` / `02` | little-endian / big-endian |
-| `0x06` | `01` | ELF version |
+
+> 終端友好列表： Offset / Bytes / 意義
+
+- **Offset:** `0x00`
+  - **Bytes:** `7F 45 4C 46`
+  - **意義:** ELF magic
+
+- **Offset:** `0x04`
+  - **Bytes:** `01` / `02`
+  - **意義:** 32-bit / 64-bit
+
+- **Offset:** `0x05`
+  - **Bytes:** `01` / `02`
+  - **意義:** little-endian / big-endian
+
+- **Offset:** `0x06`
+  - **Bytes:** `01`
+  - **意義:** ELF version
+
 
 CTF 快速檢查：
 
@@ -2253,20 +2547,57 @@ pdftotext doc.pdf out.txt
 
 ### B.7 其他常見 Magic Headers
 
-| 格式 | Header / Magic | 命令 |
-|---|---|---|
-| GIF | `47 49 46 38 37 61` / `47 49 46 38 39 61` | `file`, `strings` |
-| BMP | `42 4D` | `file`, `xxd` |
-| WAV | `52 49 46 46 .... 57 41 56 45` | `file`, `strings`, `xxd` |
-| MP3 ID3 | `49 44 33` | `file`, `strings` |
-| Gzip | `1F 8B 08` | `gzip -d`, `file` |
-| Bzip2 | `42 5A 68` | `bzip2 -d` |
-| XZ | `FD 37 7A 58 5A 00` | `xz -d` |
-| 7z | `37 7A BC AF 27 1C` | `7z` 若可用，否則 `binwalk` |
-| RAR | `52 61 72 21 1A 07` | `file`, `binwalk` |
-| SQLite | `53 51 4C 69 74 65 20 66 6F 72 6D 61 74 20 33 00` | `sqlite3` |
-| PCAP | `D4 C3 B2 A1` / `A1 B2 C3 D4` | `tshark`, `tcpdump` |
-| PCAPNG | `0A 0D 0D 0A` | `tshark` |
+
+> 終端友好列表： 格式 / Header / Magic / 命令
+
+- **格式:** GIF
+  - **Header / Magic:** `47 49 46 38 37 61` / `47 49 46 38 39 61`
+  - **命令:** `file`, `strings`
+
+- **格式:** BMP
+  - **Header / Magic:** `42 4D`
+  - **命令:** `file`, `xxd`
+
+- **格式:** WAV
+  - **Header / Magic:** `52 49 46 46 .... 57 41 56 45`
+  - **命令:** `file`, `strings`, `xxd`
+
+- **格式:** MP3 ID3
+  - **Header / Magic:** `49 44 33`
+  - **命令:** `file`, `strings`
+
+- **格式:** Gzip
+  - **Header / Magic:** `1F 8B 08`
+  - **命令:** `gzip -d`, `file`
+
+- **格式:** Bzip2
+  - **Header / Magic:** `42 5A 68`
+  - **命令:** `bzip2 -d`
+
+- **格式:** XZ
+  - **Header / Magic:** `FD 37 7A 58 5A 00`
+  - **命令:** `xz -d`
+
+- **格式:** 7z
+  - **Header / Magic:** `37 7A BC AF 27 1C`
+  - **命令:** `7z` 若可用，否則 `binwalk`
+
+- **格式:** RAR
+  - **Header / Magic:** `52 61 72 21 1A 07`
+  - **命令:** `file`, `binwalk`
+
+- **格式:** SQLite
+  - **Header / Magic:** `53 51 4C 69 74 65 20 66 6F 72 6D 61 74 20 33 00`
+  - **命令:** `sqlite3`
+
+- **格式:** PCAP
+  - **Header / Magic:** `D4 C3 B2 A1` / `A1 B2 C3 D4`
+  - **命令:** `tshark`, `tcpdump`
+
+- **格式:** PCAPNG
+  - **Header / Magic:** `0A 0D 0D 0A`
+  - **命令:** `tshark`
+
 
 ---
 
@@ -2276,15 +2607,30 @@ pdftotext doc.pdf out.txt
 
 URL 裡有些字元不能直接出現，所以會變成 `%xx`：
 
-| 原字元 | URL encoded |
-|---|---|
-| `:` | `%3A` |
-| `/` | `%2F` |
-| `?` | `%3F` |
-| `=` | `%3D` |
-| `&` | `%26` |
-| 空格 | `%20` 或 `+` |
-| 中文 | UTF-8 bytes 再 `%xx` |
+
+> 終端友好列表： 原字元 / URL encoded
+
+- **原字元:** `:`
+  - **URL encoded:** `%3A`
+
+- **原字元:** `/`
+  - **URL encoded:** `%2F`
+
+- **原字元:** `?`
+  - **URL encoded:** `%3F`
+
+- **原字元:** `=`
+  - **URL encoded:** `%3D`
+
+- **原字元:** `&`
+  - **URL encoded:** `%26`
+
+- **原字元:** 空格
+  - **URL encoded:** `%20` 或 `+`
+
+- **原字元:** 中文
+  - **URL encoded:** UTF-8 bytes 再 `%xx`
+
 
 例如：
 
@@ -2386,17 +2732,36 @@ payload encoded 多層
 
 ### D.0 判斷 encoding 的直覺
 
-| 看到 | 第一反應 |
-|---|---|
-| `aGVsbG8=` | Base64 |
-| `68656c6c6f` | Hex |
-| `01001000 01101001` | Binary ASCII |
-| `&#112;&#105;...` | HTML entity |
-| `%70%69%63%6f` | URL encoding |
-| `cvpbPGS` | ROT13 可能 |
-| `\x70\x69\x63\x6f` | escaped hex bytes |
-| `112 105 99 111` | decimal ASCII |
-| `160 151 143 157` | octal ASCII 可能 |
+
+> 終端友好列表： 看到 / 第一反應
+
+- **看到:** `aGVsbG8=`
+  - **第一反應:** Base64
+
+- **看到:** `68656c6c6f`
+  - **第一反應:** Hex
+
+- **看到:** `01001000 01101001`
+  - **第一反應:** Binary ASCII
+
+- **看到:** `&#112;&#105;...`
+  - **第一反應:** HTML entity
+
+- **看到:** `%70%69%63%6f`
+  - **第一反應:** URL encoding
+
+- **看到:** `cvpbPGS`
+  - **第一反應:** ROT13 可能
+
+- **看到:** `\x70\x69\x63\x6f`
+  - **第一反應:** escaped hex bytes
+
+- **看到:** `112 105 99 111`
+  - **第一反應:** decimal ASCII
+
+- **看到:** `160 151 143 157`
+  - **第一反應:** octal ASCII 可能
+
 
 ---
 
@@ -2724,17 +3089,51 @@ file out
 
 ## E. 速查：拿到不同輸入時的第一反應
 
-| 輸入 | 第一反應 | 命令 |
-|---|---|---|
-| `.jpg` | metadata / stego | `file`, `exiftool`, `strings`, `binwalk` |
-| `.png` | chunks / LSB / appended data | `pngcheck`, `strings`, `binwalk` |
-| `.pdf` | metadata / objects | `strings`, `exiftool`, `binwalk`, `pdftotext` |
-| `.pcap` | protocol / stream | `tshark -r`, `strings`, follow stream |
-| `010101...` | bits to bytes | `fold -w8`, Python bytes |
-| `%70%69...` | URL decode | `urllib.parse.unquote_plus` |
-| `aGV...==` | Base64 | `base64 -d` |
-| `68656c...` | Hex | `xxd -r -p` |
-| `n,e,c` | RSA | `factorint`, `iroot`, `pow(c,d,n)` |
-| `g,p,A,b,enc` | DH | `shared=pow(A,b,p)` |
-| ELF | pwn/re | `file`, `checksec`, `strings`, `objdump`, `nm`, `gdb` |
+
+> 終端友好列表： 輸入 / 第一反應 / 命令
+
+- **輸入:** `.jpg`
+  - **第一反應:** metadata / stego
+  - **命令:** `file`, `exiftool`, `strings`, `binwalk`
+
+- **輸入:** `.png`
+  - **第一反應:** chunks / LSB / appended data
+  - **命令:** `pngcheck`, `strings`, `binwalk`
+
+- **輸入:** `.pdf`
+  - **第一反應:** metadata / objects
+  - **命令:** `strings`, `exiftool`, `binwalk`, `pdftotext`
+
+- **輸入:** `.pcap`
+  - **第一反應:** protocol / stream
+  - **命令:** `tshark -r`, `strings`, follow stream
+
+- **輸入:** `010101...`
+  - **第一反應:** bits to bytes
+  - **命令:** `fold -w8`, Python bytes
+
+- **輸入:** `%70%69...`
+  - **第一反應:** URL decode
+  - **命令:** `urllib.parse.unquote_plus`
+
+- **輸入:** `aGV...==`
+  - **第一反應:** Base64
+  - **命令:** `base64 -d`
+
+- **輸入:** `68656c...`
+  - **第一反應:** Hex
+  - **命令:** `xxd -r -p`
+
+- **輸入:** `n,e,c`
+  - **第一反應:** RSA
+  - **命令:** `factorint`, `iroot`, `pow(c,d,n)`
+
+- **輸入:** `g,p,A,b,enc`
+  - **第一反應:** DH
+  - **命令:** `shared=pow(A,b,p)`
+
+- **輸入:** ELF
+  - **第一反應:** pwn/re
+  - **命令:** `file`, `checksec`, `strings`, `objdump`, `nm`, `gdb`
+
 
